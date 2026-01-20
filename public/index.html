@@ -1,151 +1,98 @@
 <!DOCTYPE html>
-<html lang="id">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mimin Pintar Dashboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 0; background: #f0f2f5; display: flex; height: 100vh; overflow: hidden; }
+        .sidebar { width: 300px; background: white; padding: 20px; border-right: 1px solid #ccc; display: flex; flex-direction: column; }
+        .main { flex: 1; padding: 20px; display: flex; flex-direction: column; }
+        
+        .status-box { padding: 15px; border-radius: 8px; text-align: center; color: white; font-weight: bold; margin-bottom: 20px;}
+        .connected { background: #25D366; }
+        .disconnected { background: #ff4b4b; }
+        
+        #chat-container { flex: 1; overflow-y: auto; padding-right: 10px; }
+        .chat-bubble { background: white; padding: 10px 15px; border-radius: 10px; margin-bottom: 10px; max-width: 80%; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+        .sender { font-weight: bold; color: #075E54; font-size: 0.9em; margin-bottom: 4px; }
+        .time { font-size: 0.7em; color: #888; text-align: right; margin-top: 4px; }
+        
+        input, textarea { width: 100%; padding: 10px; margin-bottom: 10px; box-sizing: border-box; border: 1px solid #ddd; border-radius: 5px;}
+        button { width: 100%; padding: 10px; background: #0084ff; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        button:hover { background: #006bcf; }
+        canvas { width: 100% !important; height: auto !important; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
 </head>
-<body class="bg-slate-100 min-h-screen flex items-center justify-center py-10">
-    
-    <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-2xl border-t-4 border-blue-600">
+<body>
+    <div class="sidebar">
+        <h2>🤖 Status Bot</h2>
+        <div id="status" class="status-box disconnected">Mencari Koneksi...</div>
         
-        <div class="mb-6 text-center">
-            <h1 class="text-3xl font-extrabold text-gray-800">🤖 Mimin Pintar</h1>
-            <p class="text-gray-500">Setup Asisten WhatsApp AI Anda</p>
+        <div id="qr-container" style="display: none; text-align: center;">
+            <p>Scan QR di HP:</p>
+            <canvas id="qr-canvas"></canvas>
         </div>
 
-        <div id="status-container" class="hidden mb-6 p-4 rounded-lg text-center font-bold">
-            </div>
-        
-        <div class="space-y-5">
-            <div>
-                <label class="block text-sm font-semibold text-gray-700 mb-1">Google Gemini API Key</label>
-                <input type="text" id="apiKey" class="w-full border-2 border-gray-300 p-3 rounded-lg focus:outline-none focus:border-blue-500 transition" placeholder="Tempel API Key di sini...">
-                <a href="https://aistudio.google.com/app/apikey" target="_blank" class="text-xs text-blue-500 hover:underline mt-1 inline-block">👉 Belum punya? Ambil Gratis di sini</a>
-            </div>
-
-            <div>
-                <label class="block text-sm font-semibold text-gray-700 mb-1">Info Produk / Toko (Knowledge Base)</label>
-                <textarea id="knowledge" rows="8" class="w-full border-2 border-gray-300 p-3 rounded-lg focus:outline-none focus:border-blue-500 transition" placeholder="Contoh:&#10;- Nama Toko: Sepatu Jaya&#10;- Jam Buka: 08.00 - 17.00&#10;- Harga Sepatu: 150rb&#10;- Garansi: 1 Minggu"></textarea>
-                <p class="text-xs text-gray-500 mt-1">*AI akan menjawab customer berdasarkan tulisan ini.</p>
-            </div>
-
-            <button onclick="saveAndStart()" id="btn-save" class="w-full bg-blue-600 text-white p-4 rounded-lg hover:bg-blue-700 font-bold text-lg shadow-lg transition transform hover:scale-[1.02]">
-                SIMPAN & NYALAKAN BOT
-            </button>
-        </div>
-
-        <div id="qr-container" class="mt-8 text-center hidden border-t pt-6 bg-gray-50 rounded-b-lg">
-            <p class="mb-4 font-semibold text-gray-700 animate-pulse">Silakan Scan QR Code ini pakai WhatsApp:</p>
-            <img id="qr-image" class="mx-auto border-4 border-gray-800 rounded-lg shadow-md" src="" alt="Menunggu QR Code..." width="250">
-            <p class="text-xs text-gray-400 mt-3">QR Code akan refresh otomatis</p>
+        <div style="margin-top: auto;">
+            <h3>⚙️ Konfigurasi</h3>
+            <input type="password" id="apiKey" placeholder="Google API Key">
+            <textarea id="knowledge" rows="5" placeholder="Info Toko / Produk..."></textarea>
+            <button onclick="saveConfig()">Simpan & Jalankan</button>
         </div>
     </div>
 
-    <script>
-        // 1. Saat halaman dibuka, ambil data lama (biar user gak ngetik ulang)
-        window.onload = async () => {
-            try {
-                const res = await fetch('/api/config');
-                const data = await res.json();
-                if (data.apiKey) document.getElementById('apiKey').value = data.apiKey;
-                if (data.knowledge) document.getElementById('knowledge').value = data.knowledge;
-            } catch (err) {
-                console.log("Belum ada config tersimpan.");
-            }
-        };
+    <div class="main">
+        <h2>💬 Live Chat Masuk</h2>
+        <div id="chat-container">
+            </div>
+    </div>
 
-        // 2. Fungsi Tombol Simpan
-        async function saveAndStart() {
+    <script>
+        // Load Config Awal (Fetch ke Internal Express)
+        fetch('http://localhost:3000/api/config').then(r=>r.json()).then(data => {
+            if(data.apiKey) document.getElementById('apiKey').value = data.apiKey;
+            if(data.knowledge) document.getElementById('knowledge').value = data.knowledge;
+        });
+
+        function saveConfig() {
             const apiKey = document.getElementById('apiKey').value;
             const knowledge = document.getElementById('knowledge').value;
-            const btn = document.getElementById('btn-save');
-
-            if (!apiKey) return alert("API Key wajib diisi!");
-
-            // Efek loading tombol
-            btn.disabled = true;
-            btn.innerText = "Memproses...";
-            btn.classList.add("bg-gray-400");
-
-            try {
-                // Kirim ke Backend (Endpoint harus sama dengan main.ts!)
-                await fetch('/api/start', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ apiKey, knowledge }) // Nama variabel disamakan
-                });
-
-                // Tampilkan container QR & Mulai Polling
-                document.getElementById('qr-container').classList.remove('hidden');
-                
-                // Ubah status
-                updateStatus('yellow', 'Menyiapkan QR Code...');
-                
-                // Mulai cek status terus menerus
-                startPolling();
-
-            } catch (error) {
-                alert("Gagal menghubungi server. Cek terminal.");
-                btn.disabled = false;
-                btn.innerText = "SIMPAN & NYALAKAN BOT";
-            }
+            fetch('http://localhost:3000/api/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ apiKey, knowledge })
+            }).then(() => alert('Bot Dijalankan!'));
         }
 
-        // 3. Fungsi Polling (Nanya status ke server setiap 1.5 detik)
-        let pollInterval;
-        
-        function startPolling() {
-            // Hapus interval lama jika ada biar gak dobel
-            if (pollInterval) clearInterval(pollInterval);
-
-            pollInterval = setInterval(async () => {
-                try {
-                    const res = await fetch('/api/status');
-                    const data = await res.json();
-
-                    console.log("Server Status:", data); // Cek console browser buat debug
-
-                    // Skenario 1: Sudah Terhubung
-                    if (data.status === 'CONNECTED') {
-                        clearInterval(pollInterval); // Stop nanya
-                        document.getElementById('qr-container').classList.add('hidden');
-                        updateStatus('green', '✅ BOT SUDAH TERHUBUNG & AKTIF!');
-                        
-                        // Reset tombol
-                        const btn = document.getElementById('btn-save');
-                        btn.innerText = "UPDATE DATA (Bot Aktif)";
-                        btn.disabled = false;
-                        btn.classList.remove("bg-gray-400");
-                    }
-                    // Skenario 2: Ada QR Code baru
-                    else if (data.qr) {
-                        document.getElementById('qr-image').src = data.qr;
-                        updateStatus('yellow', 'Menunggu Scan...');
-                    }
-                    // Skenario 3: Masih loading
-                    else {
-                        updateStatus('blue', 'Menunggu server...');
-                    }
-
-                } catch (error) {
-                    console.log("Polling error:", error);
+        // --- ELECTRON IPC HANDLERS ---
+        if (window.electronAPI) {
+            window.electronAPI.onUpdateStatus((status) => {
+                const el = document.getElementById('status');
+                if (status === 'CONNECTED') {
+                    el.innerText = "TERHUBUNG ✅";
+                    el.className = "status-box connected";
+                    document.getElementById('qr-container').style.display = "none";
+                } else {
+                    el.innerText = "TERPUTUS ❌";
+                    el.className = "status-box disconnected";
                 }
-            }, 1500); // Cek setiap 1.5 detik
-        }
+            });
 
-        // Helper untuk update kotak status
-        function updateStatus(color, text) {
-            const box = document.getElementById('status-container');
-            box.classList.remove('hidden', 'bg-yellow-100', 'text-yellow-800', 'bg-green-100', 'text-green-800', 'bg-blue-100', 'text-blue-800');
-            
-            if (color === 'green') box.classList.add('bg-green-100', 'text-green-800');
-            if (color === 'yellow') box.classList.add('bg-yellow-100', 'text-yellow-800');
-            if (color === 'blue') box.classList.add('bg-blue-100', 'text-blue-800');
-            
-            box.innerText = text;
-            box.classList.remove('hidden');
+            window.electronAPI.onUpdateQR((qrString) => {
+                document.getElementById('qr-container').style.display = "block";
+                QRCode.toCanvas(document.getElementById('qr-canvas'), qrString, function (error) { if (error) console.error(error) });
+            });
+
+            window.electronAPI.onNewMessage((msg) => {
+                const container = document.getElementById('chat-container');
+                const html = `
+                    <div class="chat-bubble">
+                        <div class="sender">${msg.sender}</div>
+                        <div>${msg.text}</div>
+                        <div class="time">${msg.time}</div>
+                    </div>`;
+                container.insertAdjacentHTML('afterbegin', html);
+            });
         }
     </script>
 </body>
