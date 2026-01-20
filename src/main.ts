@@ -1,15 +1,10 @@
-// ============================================================
-// [BAGIAN 1] PATCH CRYPTO (WAJIB PALING ATAS)
-// ============================================================
 import * as crypto from 'crypto';
 
-// Polyfill untuk crypto global dan webcrypto
 if (typeof global !== 'undefined') {
     if (!global.crypto) {
         // @ts-ignore
         global.crypto = crypto as any;
     }
-    
     // @ts-ignore
     if (!global.crypto.subtle && crypto.webcrypto) {
         // @ts-ignore
@@ -18,29 +13,35 @@ if (typeof global !== 'undefined') {
         global.crypto.getRandomValues = crypto.webcrypto.getRandomValues.bind(crypto.webcrypto);
     }
 }
-// ============================================================
-
 import express from 'express';
 import bodyParser from 'body-parser';
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 import * as fs from 'fs';
 import * as path from 'path';
 import QRCode from 'qrcode';
+// Import BrowserWindow untuk mengirim data ke Dashboard UI
+import { BrowserWindow } from 'electron';
 
 // --- KONFIGURASI ---
 const PORT = 3000;
-const ROOT_DIR = process.cwd(); 
+const ROOT_DIR = process.cwd();
 const DATA_DIR = path.join(ROOT_DIR, 'data');
 const AUTH_DIR = path.join(DATA_DIR, 'auth_info');
 const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
 const KNOWLEDGE_FILE = path.join(DATA_DIR, 'knowledge.txt');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
+if (!fs.existsSync(AUTH_DIR)) fs.mkdirSync(AUTH_DIR, { recursive: true });
 
 // State Global
 let qrString: string | null = null;
 let connectionStatus = 'DISCONNECTED';
 let sock: any = null;
+let retryCount: number = 0;
+const MAX_RETRIES: number = 3;
+
+// Helper untuk mendapatkan jendela utama Electron
+const getMainWindow = () => BrowserWindow.getAllWindows()[0];
 
 // Setup Express
 const app = express();
@@ -75,89 +76,190 @@ app.get('/api/status', async (req, res) => {
     res.json({ status: connectionStatus, qr: qrImage });
 });
 
+app.post('/api/disconnect', async (req, res) => {
+    try {
+        if (sock) {
+            await sock.logout();
+            sock = null;
+        }
+        
+        // Hapus auth credentials
+        if (fs.existsSync(AUTH_DIR)) {
+            fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+        }
+        
+        connectionStatus = 'DISCONNECTED';
+        qrString = null;
+        retryCount = 0;
+        
+        if (getMainWindow()) {
+            getMainWindow().webContents.send('status-update', 'DISCONNECTED');
+        }
+        
+        res.json({ success: true, message: 'Koneksi WhatsApp berhasil diputus' });
+    } catch (error) {
+        console.error('Gagal disconnect:', error);
+        res.json({ success: false, error: (error as any).message });
+    }
+});
+
 // ============================================================
 // [BAGIAN 2] LOGIKA BOT (CORE)
 // ============================================================
-async function startBot(apiKey: string) {
+async function startBot(apiKey: string) {// Add this ke dalam startBot function
+setInterval(() => {
+    const memoryUsage = process.memoryUsage();
+    console.log(`Memory Usage:
+        RSS: ${Math.round(memoryUsage.rss / 1024 / 1024)} MB
+        Heap: ${Math.round(memoryUsage.heapUsed / 1024 / 1024)} MB / ${Math.round(memoryUsage.heapTotal / 1024 / 1024)} MB
+    `);
+}, 10000); // Check every 10 seconds
     console.log("Memulai Bot...");
 
-    // Import Dinamis Baileys (Wajib agar .exe tidak crash)
-    const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = await import('@whiskeysockets/baileys');
-
+    const baileys = await eval('import("@whiskeysockets/baileys")');
+    const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = baileys;
     // MOCK LOGGER
     const logger: any = {
         level: 'silent',
-        trace: () => {},
-        debug: () => {},
-        info: () => {},
-        warn: () => {},
-        error: () => {},
-        fatal: () => {},
+        trace: () => { },
+        debug: () => { },
+        info: () => { },
+        warn: () => { },
+        error: () => { },
+        fatal: () => { },
     };
-    logger.child = () => logger; 
+    logger.child = () => logger;
 
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
-    
+
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: "gemma-3-4b-it" });
 
+    // Cek apakah sudah ada credentials valid
+    const hasValidCreds = state.creds && state.creds.me && state.creds.me.id;
+
+    if (!hasValidCreds) {
+        console.log("⏳ Belum ada credentials. Generate QR untuk scan...");
+    }
+
     sock = makeWASocket({
         auth: state,
-        logger: logger, 
-        printQRInTerminal: true,
-        browser: ["Mimin Pintar", "Chrome", "1.0"]
+        logger: logger,
+        // printQRInTerminal: true,
+        browser: ["Mimin Pintar", "Chrome", "1.0"],
+        syncFullHistory: false,
+        markOnlineOnConnect: false,
+        connectTimeoutMs: 60_000,
+        retryRequestDelayMs: 250,
+        maxRetries: 2,
+        version: [2, 3031, 9]
     });
 
     // --- LOGIC KONEKSI ---
-    sock.ev.on('connection.update', (update: any) => {
+    sock.ev.on('connection.update', async (update: any) => {
         const { connection, lastDisconnect, qr } = update;
 
         if (qr) {
             console.log("QR Code Muncul! Scan sekarang.");
             qrString = qr;
             connectionStatus = 'WAITING_SCAN';
+            retryCount = 0; // Reset counter saat QR muncul
+            if (getMainWindow()) getMainWindow().webContents.send('qr-update', qr);
         }
 
         if (connection === 'close') {
-            const shouldReconnect = (lastDisconnect?.error as any)?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log('Koneksi terputus. Reconnect:', shouldReconnect);
-            
-            if (shouldReconnect) {
-                startBot(apiKey);
+            // Ambil kode status error
+            const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
+            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+
+            console.log(`Koneksi terputus (Status: ${statusCode}). Reconnect: ${shouldReconnect}`);
+
+            // Status 405 = Unauthorized - cek apakah auth kosong
+            if (statusCode === 405) {
+                const authExists = fs.existsSync(AUTH_DIR) && fs.readdirSync(AUTH_DIR).length > 0;
+                
+                if (!authExists) {
+                    // Auth kosong = belum ada credentials, ini normal saat awal
+                    retryCount++;
+                    if (retryCount > MAX_RETRIES) {
+                        console.log("❌ Max retries terpenuhi. Silakan restart aplikasi dan scan QR baru.");
+                        connectionStatus = 'FAILED';
+                        if (getMainWindow()) getMainWindow().webContents.send('status-update', 'FAILED');
+                        return;
+                    }
+                    
+                    const delayMs = 5000 + (retryCount * 3000); // 8s, 11s, 14s
+                    console.log(`⏳ Menunggu ${delayMs / 1000}s sebelum retry (attempt ${retryCount}/${MAX_RETRIES})...`);
+                    setTimeout(() => startBot(apiKey), delayMs);
+                } else {
+                    // Auth ada tapi error 405 = session expired/invalid
+                    console.log("⚠️ Error 405 dengan auth existing - Menghapus sesi lama...");
+                    connectionStatus = 'DISCONNECTED';
+                    if (getMainWindow()) getMainWindow().webContents.send('status-update', 'DISCONNECTED');
+                    
+                    try {
+                        fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+                    } catch (e) {
+                        console.error("Gagal hapus folder auth:", e);
+                    }
+                    
+                    retryCount = 0;
+                    setTimeout(() => startBot(apiKey), 3000);
+                }
+            } else if (shouldReconnect) {
+                retryCount = 0;
+                console.log("Mencoba menyambung ulang dalam 5 detik...");
+                setTimeout(() => startBot(apiKey), 5000);
             } else {
-                console.log("User Log Out! Menghapus sesi dan restart...");
+                console.log("User Log Out! Menghapus sesi...");
                 connectionStatus = 'DISCONNECTED';
-                qrString = null;
-                sock = null;
+                if (getMainWindow()) getMainWindow().webContents.send('status-update', 'DISCONNECTED');
 
                 try {
                     fs.rmSync(AUTH_DIR, { recursive: true, force: true });
                 } catch (e) {
                     console.error("Gagal hapus folder auth:", e);
                 }
-
-                startBot(apiKey);
+                
+                retryCount = 0;
+                setTimeout(() => startBot(apiKey), 2000);
             }
         } else if (connection === 'open') {
             console.log('✅ WhatsApp Terhubung!');
             connectionStatus = 'CONNECTED';
             qrString = null;
+            retryCount = 0;
+            if (getMainWindow()) getMainWindow().webContents.send('status-update', 'CONNECTED');
         }
     });
 
     sock.ev.on('creds.update', saveCreds);
 
+    // --- ERROR HANDLER ---
+    sock.ev.on('connection.error', (error: any) => {
+        console.error("❌ Connection error:", error?.message || error);
+    });
+
     // --- LOGIKA PESAN MASUK ---
     sock.ev.on('messages.upsert', async (m: any) => {
         const msg = m.messages[0];
         if (!msg.message || msg.key.fromMe) return;
-        
+
         const sender = msg.key.remoteJid;
         const textMessage = msg.message.conversation || msg.message.extendedTextMessage?.text;
-        const pushName = msg.pushName || "Kak"; 
+        const pushName = msg.pushName || "Kak";
 
         if (!textMessage) return;
         console.log(`Chat masuk dari ${pushName}: ${textMessage}`);
+
+        // 🔥 KIRIM CHAT KE DASHBOARD SECARA REAL-TIME
+        if (getMainWindow()) {
+            getMainWindow().webContents.send('new-message', {
+                sender: pushName,
+                text: textMessage,
+                time: new Date().toLocaleTimeString()
+            });
+        }
 
         try {
             let knowledgeBase = "Belum ada informasi produk.";
@@ -165,12 +267,9 @@ async function startBot(apiKey: string) {
                 knowledgeBase = fs.readFileSync(KNOWLEDGE_FILE, 'utf-8');
             }
 
-            // ========================================================
-            // 🔥 PROMPT OPTIMIZED (AGAR JAWABAN LEBIH TERKONDISI) 🔥
-            // ========================================================
             const prompt = `
 [PERAN UTAMA]
-Kamu adalah "Mimin Pintar", Customer Service (CS) toko online yang profesional, ramah, dan sangat membantu.
+Kamu adalah "Mimin Pintar", Customer Service (CS) yang profesional, ramah, dan sangat membantu.
 Tujuanmu adalah membantu pelanggan dan MENDORONG PENJUALAN (Closing) secara halus.
 
 [SUMBER DATA (DATABASE)]
@@ -183,23 +282,16 @@ ${knowledgeBase}
 4. 📱 **FORMAT CHAT:** Jangan kirim paragraf panjang. Pecah jawaban jadi kalimat pendek-pendek. Gunakan emoji (✅, 📦, 💰, 👉) untuk poin-poin penting agar enak dibaca di HP.
 5. 🎯 **CALL TO ACTION:** Jika user bertanya harga atau produk, akhiri jawaban dengan tawaran menarik. Contoh: "Mau Mimin bantu buat pesanan sekarang, Kak? 😊".
 
-[CONTOH PERCAKAPAN]
-User: "Harganya berapa?"
-Mimin: "Untuk paket ini harganya cuma Rp 50.000 aja Kak 💰. Barangnya ready stok lho, mau dibungkus sekarang?"
-
-User: "Lokasi dimana?"
-Mimin: "Toko kami ada di Jakarta Pusat ya Kak. Bisa kirim via Gojek/Grab juga kok 🛵."
-
 -----------------------------------
 [PESAN MASUK DARI USER]
 "${textMessage}"
 
 [JAWABAN MIMIN]
 `;
-            
+
             await sock.sendPresenceUpdate('composing', sender);
-            await new Promise(r => setTimeout(r, 1200)); // Delay natural
-            
+            await new Promise(r => setTimeout(r, 1200));
+
             const result = await model.generateContent({
                 contents: [{ role: "user", parts: [{ text: prompt }] }],
                 safetySettings: [
@@ -213,23 +305,16 @@ Mimin: "Toko kami ada di Jakarta Pusat ya Kak. Bisa kirim via Gojek/Grab juga ko
             const replyText = result.response.text();
             await sock.sendMessage(sender, { text: replyText });
 
-        } catch (error) { 
+        } catch (error) {
             console.error('Gagal balas:', error);
-            // Handling Limit
             if (JSON.stringify(error).includes("429")) {
-               await sock.sendMessage(sender, { text: "Waduh, Mimin lagi pusing (Limit Kuota Habis). Besok chat lagi ya Kak! 🙏" });
+                await sock.sendMessage(sender, { text: "Waduh, Mimin lagi pusing (Limit Kuota Habis). Besok chat lagi ya Kak! 🙏" });
             }
         }
     });
 }
 
-// Open v8 Logic
+// Start Internal Server
 app.listen(PORT, async () => {
-    console.log(`🚀 Dashboard siap di http://localhost:${PORT}`);
-    try { 
-        const open = require('open'); 
-        open(`http://localhost:${PORT}`); 
-    } catch(e) {
-        console.log("Gagal auto-open browser (Abaikan jika di server).");
-    }
+    console.log(`🚀 Server Internal siap di http://localhost:${PORT}`);
 });

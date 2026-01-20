@@ -1,96 +1,230 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
+
 <head>
+    <meta charset="UTF-8">
     <title>Mimin Pintar Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
     <style>
-        body { font-family: sans-serif; margin: 0; padding: 0; background: #f0f2f5; display: flex; height: 100vh; overflow: hidden; }
-        .sidebar { width: 300px; background: white; padding: 20px; border-right: 1px solid #ccc; display: flex; flex-direction: column; }
-        .main { flex: 1; padding: 20px; display: flex; flex-direction: column; }
-        
-        .status-box { padding: 15px; border-radius: 8px; text-align: center; color: white; font-weight: bold; margin-bottom: 20px;}
-        .connected { background: #25D366; }
-        .disconnected { background: #ff4b4b; }
-        
-        #chat-container { flex: 1; overflow-y: auto; padding-right: 10px; }
-        .chat-bubble { background: white; padding: 10px 15px; border-radius: 10px; margin-bottom: 10px; max-width: 80%; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
-        .sender { font-weight: bold; color: #075E54; font-size: 0.9em; margin-bottom: 4px; }
-        .time { font-size: 0.7em; color: #888; text-align: right; margin-top: 4px; }
-        
-        input, textarea { width: 100%; padding: 10px; margin-bottom: 10px; box-sizing: border-box; border: 1px solid #ddd; border-radius: 5px;}
-        button { width: 100%; padding: 10px; background: #0084ff; color: white; border: none; border-radius: 5px; cursor: pointer; }
-        button:hover { background: #006bcf; }
-        canvas { width: 100% !important; height: auto !important; }
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .glass { background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(10px); }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+        .chat-animate { animation: slideIn 0.3s ease-out; }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
     </style>
+
     <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
-<body>
-    <div class="sidebar">
-        <h2>🤖 Status Bot</h2>
-        <div id="status" class="status-box disconnected">Mencari Koneksi...</div>
-        
-        <div id="qr-container" style="display: none; text-align: center;">
-            <p>Scan QR di HP:</p>
-            <canvas id="qr-canvas"></canvas>
-        </div>
 
-        <div style="margin-top: auto;">
-            <h3>⚙️ Konfigurasi</h3>
-            <input type="password" id="apiKey" placeholder="Google API Key">
-            <textarea id="knowledge" rows="5" placeholder="Info Toko / Produk..."></textarea>
-            <button onclick="saveConfig()">Simpan & Jalankan</button>
-        </div>
-    </div>
+<body class="bg-[#F8FAFC] text-slate-800 h-screen overflow-hidden">
 
-    <div class="main">
-        <h2>💬 Live Chat Masuk</h2>
-        <div id="chat-container">
+    <div class="flex h-full">
+        <aside class="w-80 bg-white border-r border-slate-200 flex flex-col shadow-sm z-10">
+            <div class="p-6">
+                <div class="flex items-center gap-3 mb-8">
+                    <div class="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-indigo-200">
+                        <i class="fas fa-robot text-lg"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-lg font-bold tracking-tight">Mimin Pintar</h1>
+                        <p class="text-xs text-slate-400 font-medium">AI WhatsApp Assistant</p>
+                    </div>
+                </div>
+
+                <div id="status-container" class="mb-6">
+                    <div id="status" class="flex items-center gap-3 p-4 rounded-2xl bg-slate-50 border border-slate-100 transition-all duration-300">
+                        <div id="status-dot" class="w-3 h-3 rounded-full bg-slate-300 animate-pulse"></div>
+                        <span class="text-sm font-semibold text-slate-500">Mencari koneksi...</span>
+                    </div>
+                </div>
+
+                <div id="qr-container" class="hidden chat-animate p-4 bg-indigo-50 border border-indigo-100 rounded-2xl text-center mb-6">
+                    <h3 class="text-xs font-bold text-indigo-600 uppercase tracking-widest mb-3"><i class="fas fa-qrcode"></i> Tautkan Perangkat</h3>
+                    <div class="bg-white p-2 rounded-xl inline-block shadow-sm">
+                        <canvas id="qr-canvas" class="!w-40 !h-40"></canvas>
+                    </div>
+                    <p class="text-[10px] text-indigo-400 mt-3 font-medium"><i class="fas fa-mobile-alt"></i> Buka WhatsApp > Perangkat Tertaut</p>
+                </div>
             </div>
+
+            <div class="mt-auto p-6 bg-slate-50/50 border-t border-slate-100">
+                <h3 class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Konfigurasi Sistem</h3>
+                <div class="space-y-4">
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-500 ml-1">GEMINI API KEY</label>
+                        <div class="relative mt-1">
+                            <input type="password" id="apiKey" class="w-full p-3 pr-10 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all outline-none shadow-sm" placeholder="••••••••••••">
+                            <button type="button" onclick="toggleApiKeyVisibility()" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors">
+                                <i id="apiKeyToggleIcon" class="fas fa-eye text-sm"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-500 ml-1">KNOWLEDGE BASE</label>
+                        <textarea id="knowledge" rows="4" class="w-full mt-1 p-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all outline-none shadow-sm resize-none" placeholder="Tulis info produk atau promo..."></textarea>
+                    </div>
+                    <button onclick="saveConfig()" class="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm shadow-lg shadow-indigo-100 active:scale-[0.98] transition-all">
+                        <i class="fas fa-play"></i> Simpan & Jalankan
+                    </button>
+                    <button onclick="disconnectWhatsApp()" class="w-full py-3.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-sm shadow-lg shadow-rose-100 active:scale-[0.98] transition-all">
+                        <i class="fas fa-power-off"></i> Putus Koneksi
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+        <main class="flex-1 flex flex-col relative">
+            <header class="h-20 bg-white/80 glass border-b border-slate-200 flex items-center px-8 justify-between">
+                <h2 class="font-bold text-slate-800 flex items-center gap-2">
+                    <i class="fas fa-comments text-indigo-500"></i>
+                    Live Chat Monitoring
+                </h2>
+                <div class="text-xs font-medium text-slate-400 bg-slate-100 px-3 py-1 rounded-full">
+                    <i class="fas fa-check-circle text-green-500"></i> Auto-Reply Active
+                </div>
+            </header>
+
+            <div id="chat-container" class="flex-1 overflow-y-auto p-8 flex flex-col-reverse gap-4">
+                <div class="text-center py-20">
+                    <div class="text-4xl mb-4 text-slate-300"><i class="fas fa-inbox"></i></div>
+                    <p class="text-slate-400 text-sm font-medium">Belum ada aktivitas chat saat ini.</p>
+                </div>
+            </div>
+
+            <div class="absolute top-0 right-0 -z-10 w-96 h-96 bg-indigo-100/50 rounded-full blur-3xl opacity-50 translate-x-1/2 -translate-y-1/2"></div>
+        </main>
     </div>
 
     <script>
-        // Load Config Awal (Fetch ke Internal Express)
-        fetch('http://localhost:3000/api/config').then(r=>r.json()).then(data => {
-            if(data.apiKey) document.getElementById('apiKey').value = data.apiKey;
-            if(data.knowledge) document.getElementById('knowledge').value = data.knowledge;
-        });
+        // Load Initial Config
+        fetch('http://localhost:3000/api/config')
+            .then(r => r.json())
+            .then(data => {
+                if (data.apiKey) document.getElementById('apiKey').value = data.apiKey;
+                if (data.knowledge) document.getElementById('knowledge').value = data.knowledge;
+            });
 
         function saveConfig() {
             const apiKey = document.getElementById('apiKey').value;
             const knowledge = document.getElementById('knowledge').value;
+            
+            const btn = event.target;
+            const originalText = btn.innerText;
+            btn.innerText = "⏳ Memproses...";
+            btn.disabled = true;
+
             fetch('http://localhost:3000/api/start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ apiKey, knowledge })
-            }).then(() => alert('Bot Dijalankan!'));
+            }).then(() => {
+                setTimeout(() => {
+                    btn.innerText = originalText;
+                    btn.disabled = false;
+                    alert('Bot Mimin Pintar Berhasil Diaktifkan!');
+                }, 1000);
+            });
         }
 
-        // --- ELECTRON IPC HANDLERS ---
+        function toggleApiKeyVisibility() {
+            const apiKeyInput = document.getElementById('apiKey');
+            const toggleIcon = document.getElementById('apiKeyToggleIcon');
+            
+            console.log('Current type:', apiKeyInput.type);
+            
+            if (apiKeyInput.type === 'password') {
+                apiKeyInput.type = 'text';
+                toggleIcon.className = 'fas fa-eye-slash text-sm';
+            } else {
+                apiKeyInput.type = 'password';
+                toggleIcon.className = 'fas fa-eye text-sm';
+            }
+            
+            console.log('New type:', apiKeyInput.type);
+        }
+
+        function disconnectWhatsApp() {
+            if (!confirm('Apakah Anda yakin ingin memutus koneksi WhatsApp?')) {
+                return;
+            }
+
+            const btn = event.target;
+            const originalText = btn.innerText;
+            btn.innerText = "⏳ Memutus...";
+            btn.disabled = true;
+
+            fetch('http://localhost:3000/api/disconnect', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            }).then(() => {
+                setTimeout(() => {
+                    btn.innerText = originalText;
+                    btn.disabled = false;
+                    alert('Koneksi WhatsApp berhasil diputus!');
+                }, 1000);
+            }).catch((err) => {
+                btn.innerText = originalText;
+                btn.disabled = false;
+                alert('Gagal memutus koneksi: ' + err.message);
+            });
+        }
+
+        // IPC ELECTRON HANDLERS
         if (window.electronAPI) {
             window.electronAPI.onUpdateStatus((status) => {
-                const el = document.getElementById('status');
+                const statusEl = document.getElementById('status');
+                const dotEl = document.getElementById('status-dot');
+                const textEl = statusEl.querySelector('span');
+                const qrCont = document.getElementById('qr-container');
+
                 if (status === 'CONNECTED') {
-                    el.innerText = "TERHUBUNG ✅";
-                    el.className = "status-box connected";
-                    document.getElementById('qr-container').style.display = "none";
+                    statusEl.className = "flex items-center gap-3 p-4 rounded-2xl bg-emerald-50 border border-emerald-100 transition-all duration-500";
+                    dotEl.className = "w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]";
+                    textEl.innerText = "Terhubung";
+                    textEl.className = "text-sm font-bold text-emerald-600";
+                    qrCont.classList.add('hidden');
                 } else {
-                    el.innerText = "TERPUTUS ❌";
-                    el.className = "status-box disconnected";
+                    statusEl.className = "flex items-center gap-3 p-4 rounded-2xl bg-rose-50 border border-rose-100 transition-all duration-500";
+                    dotEl.className = "w-3 h-3 rounded-full bg-rose-500 animate-pulse";
+                    textEl.innerText = "Terputus";
+                    textEl.className = "text-sm font-bold text-rose-600";
                 }
             });
 
             window.electronAPI.onUpdateQR((qrString) => {
-                document.getElementById('qr-container').style.display = "block";
-                QRCode.toCanvas(document.getElementById('qr-canvas'), qrString, function (error) { if (error) console.error(error) });
+                const qrCont = document.getElementById('qr-container');
+                qrCont.classList.remove('hidden');
+                QRCode.toCanvas(document.getElementById('qr-canvas'), qrString, {
+                    width: 180,
+                    margin: 0,
+                    color: { dark: "#4F46E5", light: "#FFFFFF" }
+                });
             });
 
             window.electronAPI.onNewMessage((msg) => {
                 const container = document.getElementById('chat-container');
+                
+                // Hapus placeholder jika ada
+                if(container.querySelector('p')) container.innerHTML = '';
+
                 const html = `
-                    <div class="chat-bubble">
-                        <div class="sender">${msg.sender}</div>
-                        <div>${msg.text}</div>
-                        <div class="time">${msg.time}</div>
-                    </div>`;
+                <div class="chat-animate flex flex-col items-start">
+                    <div class="bg-white border border-slate-100 shadow-sm rounded-2xl rounded-tl-none p-4 max-w-[80%] relative group">
+                        <div class="text-[10px] font-bold text-indigo-500 uppercase tracking-tighter mb-1">${msg.sender}</div>
+                        <div class="text-sm text-slate-700 leading-relaxed">${msg.text}</div>
+                        <div class="text-[9px] text-slate-300 mt-2 font-medium">${msg.time}</div>
+                    </div>
+                </div>`;
+                
                 container.insertAdjacentHTML('afterbegin', html);
             });
         }
