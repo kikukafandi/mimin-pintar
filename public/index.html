@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Mimin Pintar Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center">
+    <div class="bg-white p-8 rounded-lg shadow-lg w-full max-w-2xl">
+        <h1 class="text-2xl font-bold text-blue-600 mb-4">Setting Mimin Pintar</h1>
+        
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium">Google Gemini API Key</label>
+                <input type="text" id="apiKey" class="w-full border p-2 rounded" placeholder="Tempel API Key di sini...">
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium">Info Produk / Toko (Knowledge Base)</label>
+                <textarea id="knowledge" rows="6" class="w-full border p-2 rounded" placeholder="Contoh: Kami jual madu asli. Harga 50rb per botol. Pengiriman dari Surabaya..."></textarea>
+                <p class="text-xs text-gray-500">*Tulis semua info jualanmu di sini. AI akan menjawab berdasarkan tulisan ini.</p>
+            </div>
+
+            <button onclick="saveData()" class="w-full bg-blue-600 text-white p-3 rounded hover:bg-blue-700 font-bold">
+                SIMPAN & NYALAKAN BOT
+            </button>
+        </div>
+
+        <div id="qr-container" class="mt-8 text-center hidden">
+            <p class="mb-2">Silakan Scan QR Code ini pakai WhatsApp:</p>
+            <div id="qr-image" class="inline-block border-4 border-gray-800 p-2"></div>
+        </div>
+    </div>
+
+    <script>
+        // Script sederhana untuk kirim data ke backend & tampilkan QR
+        async function saveData() {
+            const apiKey = document.getElementById('apiKey').value;
+            const knowledge = document.getElementById('knowledge').value;
+            
+            // Kirim ke Localhost server
+            await fetch('/api/save-config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ apiKey, productKnowledge: knowledge })
+            });
+
+            alert('Data tersimpan! Menunggu QR Code...');
+            // Polling untuk cek QR Code...
+        }
+    </script>
+</body>
+</html>

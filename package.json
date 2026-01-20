@@ -1,0 +1,31 @@
+{
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@whiskeysockets/baileys": "^7.0.0-rc.9",
+    "body-parser": "^2.2.2",
+    "express": "^5.2.1",
+    "open": "^11.0.0",
+    "pino": "^10.2.1",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/qrcode": "^1.5.6",
+    "@vercel/ncc": "^0.38.4",
+    "pkg": "^5.8.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  },
+  "name": "mimin-pintar",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build": "ncc build src/main.ts -o dist",
+    "package": "pkg dist/index.js --targets node18-win-x64 --output MiminPintar.exe"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}
