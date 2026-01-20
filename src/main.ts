@@ -1,16 +1,53 @@
 import * as crypto from 'crypto';
+
+// 1. Paksa global.crypto tersedia
 if (!global.crypto) {
     // @ts-ignore
     global.crypto = {};
 }
-if (!global.crypto.subtle) {
-    if (crypto.webcrypto) {
+
+// 2. Suntikkan WebCrypto (Subtle & GetRandomValues) ke Global
+// @ts-ignore
+if (!global.crypto.subtle || !global.crypto.getRandomValues) {
+    // Mengambil instance webcrypto bawaan Node.js
+    const webCrypto = (crypto as any).webcrypto;
+    
+    if (webCrypto) {
         // @ts-ignore
-        global.crypto.subtle = crypto.webcrypto.subtle;
+        if (!global.crypto.subtle) {
+            // @ts-ignore
+            global.crypto.subtle = webCrypto.subtle;
+        }
+        // @ts-ignore
+        if (!global.crypto.getRandomValues) {
+            // PENTING: Harus di-bind ke webCrypto agar tidak error "Illegal invocation"
+            // @ts-ignore
+            global.crypto.getRandomValues = webCrypto.getRandomValues.bind(webCrypto);
+        }
     } else {
-        console.error("WARNING: WebCrypto API tidak ditemukan! Update Node.js Anda.");
+        console.error("FATAL ERROR: WebCrypto API tidak ditemukan di binary Node.js ini!");
     }
 }
+
+// 3. Matikan Library Optional yang sering bikin crash di PKG (Windows)
+try {
+    const modulesToSkip = ['bufferutil', 'utf-8-validate'];
+    modulesToSkip.forEach(mod => {
+        try {
+            // Kita pura-pura module ini sudah di-load (mocking)
+            require.cache[require.resolve(mod)] = {
+                id: require.resolve(mod),
+                filename: require.resolve(mod),
+                loaded: true,
+                exports: {} 
+            } as any;
+        } catch (e) {
+            // Ignore jika module memang tidak ada
+        }
+    });
+} catch (e) {}
+// --- [AKHIR PATCH] ---
+
 import express from 'express';
 import bodyParser from 'body-parser';
 import makeWASocket, { useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
@@ -23,6 +60,7 @@ import pino from 'pino';
 
 // --- CONFIGURATION ---
 const PORT = 3000;
+// Menggunakan process.cwd() agar path dinamis mengikuti lokasi file .exe
 const DATA_DIR = path.join(process.cwd(), 'data');
 const AUTH_DIR = path.join(process.cwd(), 'data', 'auth_info');
 const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
@@ -39,6 +77,7 @@ let sock: any = null;
 // --- EXPRESS APP (DASHBOARD) ---
 const app = express();
 app.use(bodyParser.json());
+
 // Update path public agar kompatibel saat dibungkus PKG
 // Kita asumsikan folder 'public' selalu ada di sebelah file executable
 app.use(express.static(path.join(process.cwd(), 'public')));
@@ -88,11 +127,10 @@ async function startBot(apiKey: string) {
 
     // Setup Gemini AI
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     sock = makeWASocket({
         auth: state,
-        printQRInTerminal: true,
         logger: pino({ level: 'silent' }),
         browser: ["Mimin Pintar", "Chrome", "1.0"]
     });
@@ -176,7 +214,7 @@ async function startBot(apiKey: string) {
 // --- START SERVER ---
 app.listen(PORT, () => {
     console.log(`🚀 Dashboard siap di http://localhost:${PORT}`);
-    // Open hanya jalan jika di environment desktop, di server headless kadang error, jadi kita try-catch
+    // Open hanya jalan jika di environment desktop
     try {
         open(`http://localhost:${PORT}`);
     } catch (e) {
