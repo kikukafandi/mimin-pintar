@@ -15,7 +15,7 @@ if (typeof global !== 'undefined') {
 }
 import express from 'express';
 import bodyParser from 'body-parser';
-import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import * as fs from 'fs';
 import * as path from 'path';
 import QRCode from 'qrcode';
@@ -133,7 +133,11 @@ setInterval(() => {
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemma-3-4b-it" });
+    
+    // Gunakan gemini-2.5-flash (paling stabil & kuota aman)
+    const model = genAI.getGenerativeModel({
+        model: "gemma-3-4b-it"
+    });
 
     // Cek apakah sudah ada credentials valid
     const hasValidCreds = state.creds && state.creds.me && state.creds.me.id;
@@ -293,13 +297,10 @@ ${knowledgeBase}
             await new Promise(r => setTimeout(r, 1200));
 
             const result = await model.generateContent({
-                contents: [{ role: "user", parts: [{ text: prompt }] }],
-                safetySettings: [
-                    { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-                    { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-                    { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-                    { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE }
-                ]
+                contents: [{
+                    role: "user",
+                    parts: [{ text: prompt }]
+                }]
             });
 
             const replyText = result.response.text();
@@ -307,8 +308,18 @@ ${knowledgeBase}
 
         } catch (error) {
             console.error('Gagal balas:', error);
-            if (JSON.stringify(error).includes("429")) {
+            const errorStr = JSON.stringify(error).toLowerCase();
+            
+            if (errorStr.includes("404") || errorStr.includes("not found")) {
+                await sock.sendMessage(sender, { text: "Maaf Kak, Mimin sedang offline. Coba lagi nanti ya 🙏" });
+                console.error("ERROR 404: Model tidak ditemukan. Periksa API Key atau akses model di Google AI Studio");
+            } else if (errorStr.includes("429") || errorStr.includes("quota")) {
                 await sock.sendMessage(sender, { text: "Waduh, Mimin lagi pusing (Limit Kuota Habis). Besok chat lagi ya Kak! 🙏" });
+            } else if (errorStr.includes("401") || errorStr.includes("unauthenticated") || errorStr.includes("invalid")) {
+                await sock.sendMessage(sender, { text: "API Key tidak valid. Silakan periksa konfigurasi. 🙏" });
+                console.error("ERROR 401: API Key tidak valid atau sudah expired");
+            } else {
+                await sock.sendMessage(sender, { text: "Terjadi kesalahan saat memproses pesan. Coba lagi 🙏" });
             }
         }
     });

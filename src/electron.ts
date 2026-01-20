@@ -9,6 +9,7 @@ function createWindow() {
         width: 1200,
         height: 800,
         title: "Mimin Pintar Dashboard",
+        icon: path.join(__dirname, '../public/icon.ico'),
         webPreferences: {
             // Arahkan ke hasil compile preload.js di folder dist
             preload: path.join(__dirname, '../dist/preload.js'),
